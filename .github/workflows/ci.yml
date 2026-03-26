@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    tags:
+      - '**'
+
+jobs:
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker image
+        run: docker build -t ghcr.io/cloudybay/test-ci:${{ github.ref_name }} .
+
+      - name: Push Docker image to GHCR
+        run: docker push ghcr.io/cloudybay/test-ci:${{ github.ref_name }}
+
+  deploy-production:
+    name: Deploy to Production
+    needs: build
+    if: startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Trigger deploy_production in test-ci-deploy
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.DEPLOY_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: 'test-ci-deploy',
+              workflow_id: 'deploy_production.yml',
+              ref: 'main',
+              inputs: {
+                VAR_OPERATION_MODE: 'prod'
+              }
+            });
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build
+    if: startsWith(github.ref_name, 'staging-')
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Trigger deploy_staging in test-ci-deploy
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.DEPLOY_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: 'test-ci-deploy',
+              workflow_id: 'deploy_staging.yml',
+              ref: 'main',
+              inputs: {
+                VAR_OPERATION_MODE: 'staging'
+              }
+            });
